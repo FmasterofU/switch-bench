@@ -23,14 +23,18 @@ def check_fcs(packet):
     # Convert the CRC into bytes, little-endian order
     expected_fcs = crc.to_bytes(4, byteorder='little')
     # Compare the FCS from the packet with the expected FCS
+    print("FCS check: ", fcs, expected_fcs)
     return fcs == expected_fcs
 
 def send_layer2_packet(dst_mac, src_mac, payload):
     # Create an Ethernet frame with the specified MAC addresses
     ether = Ether(dst=dst_mac, src=src_mac, type=0x1234)
 
+    payload = append_fcs(payload)
+    print("FCS: ", payload[-4:])
+
     # Attach the payload to the Ethernet frame
-    packet = ether / append_fcs(payload)
+    packet = ether / payload
 
     # Send the packet on the network
     sendp(packet)
@@ -41,23 +45,19 @@ def send_random_size_layer2_packet(dst_mac, src_mac):
     send_layer2_packet(dst_mac, src_mac, payload)
 
 def analyze_packet(packet):
-    if Ether in packet:
-        if packet[Ether].type == 0x1234:
-            print("Source MAC: ", packet[Ether].src)
-            print("Destination MAC: ", packet[Ether].dst)
-            print("Ethernet Type: ", packet[Ether].type)
-            print("Payload: ", bytes(packet[Ether].payload))
-            if check_fcs(bytes(packet[Ether].payload)):
-                raise Exception("FCS check failed.")
+    print("Length: ", len(packet[Ether].payload))
+    print("FCS: ", bytes(packet[Ether].payload)[-4:])
+    if check_fcs(bytes(packet[Ether].payload)):
+        raise Exception("FCS check failed.")
 
 def capture_packets(remote_hosts = None):
     if not remote_hosts:
         sniff(filter="ether proto 0x1234", prn=analyze_packet)
     else:
-        filter = "ether proto 0x1234 and (ether src" + remote_hosts[0]
+        filter = "ether proto 0x1234 and (ether src " + remote_hosts[0]
         for i in range(1, len(remote_hosts)):
             filter += " or ether src " + remote_hosts[i]
-        filter += "or ether dst ff:ff:ff:ff:ff:ff)"
+        filter += " or ether dst ff:ff:ff:ff:ff:ff)"
         sniff(filter=filter, prn=analyze_packet)
 
 def validate_mac_address(mac_address):
