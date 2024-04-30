@@ -1,6 +1,8 @@
-from scapy.all import Ether, sendp, sniff, raw
+from scapy.all import Ether, sendp, sniff, raw, conf
 import zlib
 import sys, os, random
+
+conf.verb = 0
 
 def append_fcs(packet):
     #fill with zeros so that the packet has a minimum lenght of 46 bytes
@@ -23,7 +25,6 @@ def check_fcs(packet):
     # Convert the CRC into bytes, little-endian order
     expected_fcs = crc.to_bytes(4, byteorder='little')
     # Compare the FCS from the packet with the expected FCS
-    print("FCS check: ", fcs, expected_fcs)
     return fcs == expected_fcs
 
 def send_layer2_packet(dst_mac, src_mac, payload):
@@ -31,8 +32,6 @@ def send_layer2_packet(dst_mac, src_mac, payload):
     ether = Ether(dst=dst_mac, src=src_mac, type=0x1234)
 
     payload = append_fcs(payload)
-    print("Length: ", len(payload))
-    print("FCS: ", payload[-4:])
 
     # Attach the payload to the Ethernet frame
     packet = ether / payload
@@ -46,8 +45,6 @@ def send_random_size_layer2_packet(dst_mac, src_mac):
     send_layer2_packet(dst_mac, src_mac, payload)
 
 def analyze_packet(packet):
-    print("Length: ", len(packet[Ether].payload))
-    print("FCS: ", bytes(packet[Ether].payload)[-4:])
     if not check_fcs(bytes(packet[Ether].payload)):
         raise Exception("FCS check failed.")
 
