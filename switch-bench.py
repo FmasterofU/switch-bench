@@ -8,7 +8,11 @@ ENABLE_FCS = False
 
 FCS_SIZE = 4
 
-ENABLE_PACKET_DUPLICATION = True
+ETHERNET_ENCAPSULATED_PROTOCOL = 0x1234
+ETHERNET_MINIMUM_FRAME_SIZE = 46
+
+ENABLE_PACKET_DUPLICATION = False
+PACKET_DUPLICATION_RATE = 1000
 
 if not ENABLE_FCS:
     FCS_SIZE = 0
@@ -19,30 +23,30 @@ default_payload = os.urandom(MTU - FCS_SIZE)
 
 def append_fcs(packet):
     #fill with zeros so that the packet has a minimum lenght of 46 bytes
-    if len(packet) < 46:
-        packet += b'\x00' * (46 - len(packet))
+    if len(packet) < ETHERNET_MINIMUM_FRAME_SIZE:
+        packet += b'\x00' * (ETHERNET_MINIMUM_FRAME_SIZE - len(packet))
     # Calculate CRC32 over the bytes of the packet
     crc = zlib.crc32(raw(packet)) & 0xffffffff
     # Convert the CRC into bytes, little-endian order
-    fcs = crc.to_bytes(4, byteorder='little')
+    fcs = crc.to_bytes(FCS_SIZE, byteorder='little')
     # Append the FCS to the original packet
     return raw(packet) + fcs
 
 def check_fcs(packet):
     # Extract the FCS from the packet
-    fcs = packet[-4:]
+    fcs = packet[-FCS_SIZE:]
     # Extract the rest of the packet
     rest = packet[:-4]
     # Calculate the CRC32 over the rest of the packet
     crc = zlib.crc32(rest) & 0xffffffff
     # Convert the CRC into bytes, little-endian order
-    expected_fcs = crc.to_bytes(4, byteorder='little')
+    expected_fcs = crc.to_bytes(FCS_SIZE, byteorder='little')
     # Compare the FCS from the packet with the expected FCS
     return fcs == expected_fcs
 
 def send_layer2_packet(dst_mac, src_mac, payload):
     # Create an Ethernet frame with the specified MAC addresses
-    ether = Ether(dst=dst_mac, src=src_mac, type=0x1234)
+    ether = Ether(dst=dst_mac, src=src_mac, type=ETHERNET_ENCAPSULATED_PROTOCOL)
 
     if ENABLE_FCS:
         payload = append_fcs(payload)
@@ -54,11 +58,11 @@ def send_layer2_packet(dst_mac, src_mac, payload):
     if not ENABLE_PACKET_DUPLICATION:
         sendp(packet)
     else:
-        sendpfast([packet for _ in range(100000)], mbps=1000, loop=0, file_cache=True)
+        sendp(packet, count=PACKET_DUPLICATION_RATE)
 
 def send_random_size_layer2_packet(dst_mac, src_mac):
     # create random payload of size between 46 and 1496 bytes
-    payload = os.urandom(random.randint(46, MTU - FCS_SIZE))
+    payload = os.urandom(random.randint(ETHERNET_MINIMUM_FRAME_SIZE, MTU - FCS_SIZE))
     send_layer2_packet(dst_mac, src_mac, payload)
 
 def send_default_layer2_packet(dst_mac, src_mac):
@@ -70,9 +74,9 @@ def analyze_packet(packet):
 
 def capture_packets(remote_hosts = None):
     if not remote_hosts:
-        sniff(filter="ether proto 0x1234", prn=analyze_packet)
+        sniff(filter="ether proto " + hex(ETHERNET_ENCAPSULATED_PROTOCOL), prn=analyze_packet)
     else:
-        filter = "ether proto 0x1234 and (ether src " + remote_hosts[0]
+        filter = "ether proto " + hex(ETHERNET_ENCAPSULATED_PROTOCOL) + " and (ether src " + remote_hosts[0]
         for i in range(1, len(remote_hosts)):
             filter += " or ether src " + remote_hosts[i]
         filter += " or ether dst ff:ff:ff:ff:ff:ff)"
