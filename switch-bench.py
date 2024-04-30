@@ -50,8 +50,15 @@ def analyze_packet(packet):
             if check_fcs(bytes(packet[Ether].payload)):
                 raise Exception("FCS check failed.")
 
-def capture_packets():
-    sniff(filter="ether src c8:4b:d6:50:10:d3 or ether dst ff:ff:ff:ff:ff:ff", prn=analyze_packet)
+def capture_packets(remote_hosts = None):
+    if not remote_hosts:
+        sniff(filter="ether proto 0x1234", prn=analyze_packet)
+    else:
+        filter = "ether proto 0x1234 and (ether src" + remote_hosts[0]
+        for i in range(1, len(remote_hosts)):
+            filter += " or ether src " + remote_hosts[i]
+        filter += "or ether dst ff:ff:ff:ff:ff:ff)"
+        sniff(filter=filter, prn=analyze_packet)
 
 def validate_mac_address(mac_address):
     if len(mac_address) != 17:
