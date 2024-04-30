@@ -1,8 +1,21 @@
-from scapy.all import Ether, sendp, sniff, raw, conf
+from scapy.all import Ether, sendp, sniff, raw, conf, sendpfast
 import zlib
 import sys, os, random
 
 conf.verb = 0
+
+ENABLE_FCS = False
+
+FCS_SIZE = 4
+
+ENABLE_PACKET_DUPLICATION = True
+
+if not ENABLE_FCS:
+    FCS_SIZE = 0
+
+MTU=1500
+
+default_payload = os.urandom(MTU - FCS_SIZE)
 
 def append_fcs(packet):
     #fill with zeros so that the packet has a minimum lenght of 46 bytes
@@ -31,21 +44,28 @@ def send_layer2_packet(dst_mac, src_mac, payload):
     # Create an Ethernet frame with the specified MAC addresses
     ether = Ether(dst=dst_mac, src=src_mac, type=0x1234)
 
-    payload = append_fcs(payload)
-
+    if ENABLE_FCS:
+        payload = append_fcs(payload)
+    
     # Attach the payload to the Ethernet frame
     packet = ether / payload
 
     # Send the packet on the network
-    sendp(packet)
+    if not ENABLE_PACKET_DUPLICATION:
+        sendp(packet)
+    else:
+        sendpfast([packet for _ in range(100000)], mbps=1000, loop=0, file_cache=True)
 
 def send_random_size_layer2_packet(dst_mac, src_mac):
     # create random payload of size between 46 and 1496 bytes
-    payload = os.urandom(random.randint(46, 1496))
+    payload = os.urandom(random.randint(46, MTU - FCS_SIZE))
     send_layer2_packet(dst_mac, src_mac, payload)
 
+def send_default_layer2_packet(dst_mac, src_mac):
+    send_layer2_packet(dst_mac, src_mac, default_payload)
+
 def analyze_packet(packet):
-    if not check_fcs(bytes(packet[Ether].payload)):
+    if ENABLE_FCS and not check_fcs(bytes(packet[Ether].payload)):
         raise Exception("FCS check failed.")
 
 def capture_packets(remote_hosts = None):
@@ -95,7 +115,7 @@ if __name__ == "__main__":
     if mode == "send":
         while True:
             for i in range(3, len(sys.argv)):
-                send_random_size_layer2_packet(sys.argv[i], localhost_mac)
+                send_default_layer2_packet(sys.argv[i], localhost_mac)
     elif mode == "capture":
         capture_packets(sys.argv[3:])
     elif mode == "combined":
