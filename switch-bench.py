@@ -31,6 +31,7 @@ def send_layer2_packet(dst_mac, src_mac, payload):
     ether = Ether(dst=dst_mac, src=src_mac, type=0x1234)
 
     payload = append_fcs(payload)
+    print("Length: ", len(payload))
     print("FCS: ", payload[-4:])
 
     # Attach the payload to the Ethernet frame
@@ -47,7 +48,7 @@ def send_random_size_layer2_packet(dst_mac, src_mac):
 def analyze_packet(packet):
     print("Length: ", len(packet[Ether].payload))
     print("FCS: ", bytes(packet[Ether].payload)[-4:])
-    if check_fcs(bytes(packet[Ether].payload)):
+    if not check_fcs(bytes(packet[Ether].payload)):
         raise Exception("FCS check failed.")
 
 def capture_packets(remote_hosts = None):
