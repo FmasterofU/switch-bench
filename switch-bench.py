@@ -1,6 +1,7 @@
 from scapy.all import Ether, sendp, sniff, raw, conf, sendpfast
 import zlib
-import sys, os, random
+import sys, os, random, time
+from multiprocessing import Process, active_children
 
 conf.verb = 0
 
@@ -11,8 +12,11 @@ FCS_SIZE = 4
 ETHERNET_ENCAPSULATED_PROTOCOL = 0x1234
 ETHERNET_MINIMUM_FRAME_SIZE = 46
 
-ENABLE_PACKET_DUPLICATION = False
+ENABLE_PACKET_DUPLICATION = True
 PACKET_DUPLICATION_RATE = 1000
+
+OPTIMAL_NUMBER_OF_PROCESSES = 16
+ENABLE_MULTI_PROCESSING = False
 
 if not ENABLE_FCS:
     FCS_SIZE = 0
@@ -96,6 +100,12 @@ def validate_mac_address(mac_address):
 
     return True
 
+
+def send_process(localhost_mac):
+    while True:
+        for i in range(3, len(sys.argv)):
+            send_default_layer2_packet(sys.argv[i], localhost_mac)
+
 if __name__ == "__main__":
     print("Number of arguments: ", len(sys.argv))
     print("Arguments: ", str(sys.argv))
@@ -117,9 +127,16 @@ if __name__ == "__main__":
             raise Exception("Invalid destination MAC address:" + remote_host_mac + ". Expected format: 'XX:XX:XX:XX:XX:XX'.")
 
     if mode == "send":
-        while True:
-            for i in range(3, len(sys.argv)):
-                send_default_layer2_packet(sys.argv[i], localhost_mac)
+        if ENABLE_MULTI_PROCESSING:
+            max_processes = len(sys.argv) - 3 if len(sys.argv) - 3 > OPTIMAL_NUMBER_OF_PROCESSES else OPTIMAL_NUMBER_OF_PROCESSES
+            procs = []
+            for _ in range(max_processes):
+                proc = Process(target=send_process, args=(localhost_mac,))
+                proc.start()
+            for _ in procs:
+                proc.pop(0).join()
+        else:
+            send_process(localhost_mac)
     elif mode == "capture":
         capture_packets(sys.argv[3:])
     elif mode == "combined":

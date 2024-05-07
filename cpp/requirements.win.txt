@@ -1,0 +1,7 @@
+winlibs-x86_64-posix-seh-gcc-13.2.0-llvm-18.1.5-mingw-w64ucrt-11.0.1-r8
+pcapplusplus-23.09-windows-mingw64-x86_64-gcc-13.2.0
+npcap-sdk-1.13
+make-3.81-bin
+libintl-0.14.4-bin
+libiconv-1.9.2-1-bin
+cmake
