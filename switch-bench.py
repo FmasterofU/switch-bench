@@ -141,7 +141,3 @@ if __name__ == "__main__":
         capture_packets(sys.argv[3:])
     elif mode == "combined":
         raise Exception("Combined mode not implemented yet.")
-
-    #send_layer2_packet(dst_mac, src_mac, "Hello, World!")
-    #send_layer2_packet("ff:ff:ff:ff:ff:ff", "00:00:00:00:00:00", "Hello, World!")
-    #capture_packets()

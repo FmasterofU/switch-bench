@@ -3,43 +3,13 @@
 #include "SystemUtils.h"
 #include "Packet.h"
 #include "EthLayer.h"
+#include "PayloadLayer.h"
 #include "PcapFileDevice.h"
 #include "PcapLiveDeviceList.h"
-
-int main(int argc, char* argv[])
-{
-	// Packet Creation
-	// ~~~~~~~~~~~~~~~
-
-	// create a new Ethernet layer
-	pcpp::EthLayer newEthernetLayer(pcpp::MacAddress("00:50:43:11:22:33"), pcpp::MacAddress("aa:bb:cc:dd:ee:ff"));
+#include "MacAddress.h"
 
 
-	// create a packet with initial capacity of 100 bytes (will grow automatically if needed)
-	pcpp::Packet newPacket(100);
-
-	// add all the layers we created
-	newPacket.addLayer(&newEthernetLayer);
-
-	// compute all calculated fields
-	newPacket.computeCalculateFields();
-
-
-
-
-
-    // IPv4 address of the interface we want to sniff
-	std::string interfaceIPAddr = "10.100.0.145";
-
-	// find the interface by IP address
-    pcpp::PcapLiveDevice* dev = pcpp::PcapLiveDeviceList::getInstance().getPcapLiveDeviceByIp(interfaceIPAddr);
-	if (dev == nullptr)
-	{
-		std::cerr << "Cannot find interface with IPv4 address of '" << interfaceIPAddr << "'" << std::endl;
-		return 1;
-	}
-
-
+void printDevice(pcpp::PcapLiveDevice* dev) {
     // Get device info
 	// ~~~~~~~~~~~~~~~
 
@@ -51,8 +21,64 @@ int main(int argc, char* argv[])
 		<< "   MAC address:           " << dev->getMacAddress() << std::endl // get interface MAC address
 		<< "   Default gateway:       " << dev->getDefaultGateway() << std::endl // get default gateway
 		<< "   Interface MTU:         " << dev->getMtu() << std::endl; // get interface MTU
+}
+
+int main(int argc, char* argv[])
+{
+	// Packet Creation
+	// ~~~~~~~~~~~~~~~
+
+	// create a new Ethernet layer
+	pcpp::EthLayer newEthernetLayer(pcpp::MacAddress("00:50:43:11:22:33"), pcpp::MacAddress("aa:bb:cc:dd:ee:ff"), 0x1234);
+
+    // Create a payload
+    const char* payloadData = "This is the payload data of the packet";
+    int payloadDataLength = strlen(payloadData);
+    pcpp::PayloadLayer payloadLayer(reinterpret_cast<const uint8_t*>(payloadData), payloadDataLength, false);
+
+	// create a packet (will grow automatically if needed)
+	pcpp::Packet newPacket;
+
+	// add all the layers we created
+	newPacket.addLayer(&newEthernetLayer);
+    newPacket.addLayer(&payloadLayer);
+
+	// compute all calculated fields
+	newPacket.computeCalculateFields();
 
 
+    // MAC address of the interface we want to sniff
+    std::string interfaceMacAddr = "54:E1:AD:FB:D3:1B";
+
+    // Convert the MAC address string to a MacAddress object
+    pcpp::MacAddress macAddress(interfaceMacAddr);
+
+    // Get the list of all devices
+    pcpp::PcapLiveDeviceList& deviceList = pcpp::PcapLiveDeviceList::getInstance();
+
+    // Retrieve the list of all available live devices
+    const std::vector<pcpp::PcapLiveDevice*>& devices = deviceList.getPcapLiveDevicesList();
+
+    // interface
+    pcpp::PcapLiveDevice* dev = nullptr;
+
+    // Iterate over all devices
+    for (pcpp::PcapLiveDevice* device : devices)
+    {
+        // Get the MAC address of the current device
+        pcpp::MacAddress currMacAddress = device->getMacAddress();
+
+        // Check if the MAC address of the current device matches the one we're looking for
+        if (currMacAddress == macAddress)
+        {
+            // We found the device
+            dev = device;
+            // Use the device...
+            break;
+        }
+    }
+
+    printDevice(dev);
 
     // open the device before start capturing/sending packets
 	if (!dev->open())
@@ -61,35 +87,35 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
-    // Sending single packets
+    // Sending packets
 	// ~~~~~~~~~~~~~~~~~~~~~~
+
+    
+    // send single packet. If fails exit the application
+    if (!dev->sendPacket(&newPacket))
+    {
+        std::cerr << "Couldn't send packet." << std::endl;
+        return 1;
+    } else {
+        std::cout << "Single packet sent" << std::endl;
+    }
+
 
     pcpp::RawPacketVector packetVec;
     packetVec.pushBack(newPacket.getRawPacket());
 
-	std::cout << std::endl << "Sending " << packetVec.size() << " packets one by one..." << std::endl;
-
-	// go over the vector of packets and send them one by one
-	for (pcpp::RawPacketVector::ConstVectorIterator iter = packetVec.begin(); iter != packetVec.end(); iter++)
-	{
-		// send the packet. If fails exit the application
-		if (!dev->sendPacket(**iter))
-		{
-			std::cerr << "Couldn't send packet" << std::endl;
-			return 1;
-		}
-	}
-	std::cout << packetVec.size() << " packets sent" << std::endl;
-/*
-
 	// Sending batch of packets
 	// ~~~~~~~~~~~~~~~~~~~~~~~~
 
-	std::cout << std::endl << "Sending " << packetVec.size() << " packets..." << std::endl;
+	std::cout << "Sending " << packetVec.size() << " packets..." << std::endl;
 
-	// send all packets in the vector. The returned number shows how many packets were actually sent (expected to be equal to vector size)
 	int packetsSent = dev->sendPackets(packetVec);
 
-	std::cout << packetsSent << " packets sent" << std::endl;
-*/
+    if(packetVec.size() != packetsSent)    {
+        std::cerr << "Couldn't send all packets." << std::endl;
+        return 1;
+    } else {
+        std::cout << packetsSent << " packets sent" << std::endl;
+    }
+
 }
