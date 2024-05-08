@@ -7,7 +7,17 @@
 #include "PcapFileDevice.h"
 #include "PcapLiveDeviceList.h"
 #include "MacAddress.h"
+#include <vector>
+#include <random>
+#include <ctime>
+#include <thread>
 
+
+// interface
+pcpp::PcapLiveDevice* dev = nullptr;
+
+// vector of packets
+std::vector<pcpp::RawPacket> packetVec;
 
 void printDevice(pcpp::PcapLiveDevice* dev) {
     // Get device info
@@ -23,29 +33,22 @@ void printDevice(pcpp::PcapLiveDevice* dev) {
 		<< "   Interface MTU:         " << dev->getMtu() << std::endl; // get interface MTU
 }
 
+void sender() {
+    for(int i = 0; i<30 ;i++){
+    int packetsSent = dev->sendPackets(packetVec.data(), packetVec.size());
+
+    if(packetVec.size() != packetsSent)    {
+        std::cerr << "Couldn't send all packets." << std::endl;
+        exit(1);
+    } else {
+        std::cout << packetsSent << " packets sent" << std::endl;
+    }
+}
+}
+
 int main(int argc, char* argv[])
 {
-	// Packet Creation
-	// ~~~~~~~~~~~~~~~
-
-	// create a new Ethernet layer
-	pcpp::EthLayer newEthernetLayer(pcpp::MacAddress("00:50:43:11:22:33"), pcpp::MacAddress("aa:bb:cc:dd:ee:ff"), 0x1234);
-
-    // Create a payload
-    const char* payloadData = "This is the payload data of the packet";
-    int payloadDataLength = strlen(payloadData);
-    pcpp::PayloadLayer payloadLayer(reinterpret_cast<const uint8_t*>(payloadData), payloadDataLength, false);
-
-	// create a packet (will grow automatically if needed)
-	pcpp::Packet newPacket;
-
-	// add all the layers we created
-	newPacket.addLayer(&newEthernetLayer);
-    newPacket.addLayer(&payloadLayer);
-
-	// compute all calculated fields
-	newPacket.computeCalculateFields();
-
+	std::srand(std::time(0)); // use current time as seed for random generator
 
     // MAC address of the interface we want to sniff
     std::string interfaceMacAddr = "54:E1:AD:FB:D3:1B";
@@ -58,9 +61,6 @@ int main(int argc, char* argv[])
 
     // Retrieve the list of all available live devices
     const std::vector<pcpp::PcapLiveDevice*>& devices = deviceList.getPcapLiveDevicesList();
-
-    // interface
-    pcpp::PcapLiveDevice* dev = nullptr;
 
     // Iterate over all devices
     for (pcpp::PcapLiveDevice* device : devices)
@@ -87,13 +87,42 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
+    //pcpp::Packet newPacket = createPacket();
+    // Packet Creation
+    // ~~~~~~~~~~~~~~~
+
+    // create a new Ethernet layer
+    pcpp::EthLayer newEthernetLayer(pcpp::MacAddress("54:E1:AD:FB:D3:1B"), pcpp::MacAddress("C8:4B:D6:50:10:D3"), 0x1234);
+
+    // Create a payload
+    int num_chars = 1500; // number of random characters to generate
+
+    std::vector<uint8_t> random_chars(num_chars);
+
+    for(int i = 0; i < num_chars; ++i) {
+        random_chars[i] = 'a' + std::rand() % 26; // Generate a random character between 'a' and 'z'
+    }
+
+    // Now random_chars contains num_chars random characters
+    pcpp::PayloadLayer payloadLayer(random_chars.data(), random_chars.size(), false);
+
+    // create a packet (will grow automatically if needed)
+    pcpp::Packet newPacket;
+
+    // add all the layers we created
+    newPacket.addLayer(&newEthernetLayer);
+    newPacket.addLayer(&payloadLayer);
+
+    // compute all calculated fields
+    newPacket.computeCalculateFields();
+
     // Sending packets
 	// ~~~~~~~~~~~~~~~~~~~~~~
 
-    
     // send single packet. If fails exit the application
     if (!dev->sendPacket(&newPacket))
     {
+        std::cout.flush();
         std::cerr << "Couldn't send packet." << std::endl;
         return 1;
     } else {
@@ -101,21 +130,18 @@ int main(int argc, char* argv[])
     }
 
 
-    pcpp::RawPacketVector packetVec;
-    packetVec.pushBack(newPacket.getRawPacket());
+    //pcpp::RawPacketVector packetVec;
+
+    for (int i = 0; i < 100000; i++)
+        packetVec.push_back(*(newPacket.getRawPacket()));
 
 	// Sending batch of packets
 	// ~~~~~~~~~~~~~~~~~~~~~~~~
 
 	std::cout << "Sending " << packetVec.size() << " packets..." << std::endl;
+    std::thread t1(sender);
+    std::thread t2(sender);
 
-	int packetsSent = dev->sendPackets(packetVec);
-
-    if(packetVec.size() != packetsSent)    {
-        std::cerr << "Couldn't send all packets." << std::endl;
-        return 1;
-    } else {
-        std::cout << packetsSent << " packets sent" << std::endl;
-    }
-
+    t1.join();
+    t2.join();
 }
