@@ -323,7 +323,9 @@ int main(int argc, char *argv[])
         dev->startCapture(onPacketArrives, &stats);
 
         // sleep for 10 seconds in main thread, in the meantime packets are captured in the async thread
-        pcpp::multiPlatformSleep(10);
+        // pcpp::multiPlatformSleep(10);
+        std::cout << "Press any key to stop capture..." << std::endl;
+        std::getchar();
 
         // stop capturing packets
         dev->stopCapture();
