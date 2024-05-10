@@ -11,6 +11,7 @@
 #include <random>
 #include <ctime>
 #include <thread>
+#include <map>
 
 // interface
 pcpp::PcapLiveDevice *dev = nullptr;
@@ -33,9 +34,9 @@ void printDevice(pcpp::PcapLiveDevice *dev)
         << "   Interface MTU:         " << dev->getMtu() << std::endl;           // get interface MTU
 }
 
-void sender()
+void sender(int packages = 1)
 {
-    for (int i = 0; i < 30; i++)
+    for (int i = 0; i < packages; i++)
     {
         int packetsSent = dev->sendPackets(packetVec.data(), packetVec.size());
 
@@ -54,6 +55,8 @@ void sender()
 struct PacketStats
 {
     int ethPacketCount;
+    // map of pairs of source MAC address (as string) and the number of packets sent by that MAC address
+    std::map<std::string, int> srcMacCount;
 
     /**
      * Clear all stats
@@ -61,6 +64,7 @@ struct PacketStats
     void clear()
     {
         ethPacketCount = 0;
+        srcMacCount.clear();
     }
 
     /**
@@ -76,6 +80,10 @@ struct PacketStats
         if (packet.isPacketOfType(pcpp::Ethernet))
         {
             ethPacketCount++;
+            // extract source MAC address
+            pcpp::MacAddress srcMac = packet.getLayerOfType<pcpp::EthLayer>()->getSourceMac();
+            // convert srcMac to string and then increase counter in map
+            srcMacCount[srcMac.toString()]++;
         }
     }
 
@@ -86,6 +94,17 @@ struct PacketStats
     {
         std::cout
             << "Ethernet packet count: " << ethPacketCount << std::endl;
+        // Get an iterator pointing to the first element in the
+        // map
+        std::map<std::string, int>::iterator it = srcMacCount.begin();
+
+        // iterate over all source MAC addresses and print the count
+        while (it != srcMacCount.end())
+        {
+            std::cout
+                << "   Source MAC address: " << it->first << " - " << it->second << " packets" << std::endl;
+            it++;
+        }
     }
 };
 
@@ -122,21 +141,45 @@ static void onPacketArrives(pcpp::RawPacket *packet, pcpp::PcapLiveDevice *dev, 
     stats->consumePacket(parsedPacket);
 }
 
+// function to check if string is an unsigned integer
+bool isInteger(const std::string &s)
+{
+    return !s.empty() && std::find_if(s.begin(),
+                                      s.end(), [](char c)
+                                      { return !std::isdigit(c); }) == s.end();
+}
+
 int main(int argc, char *argv[])
 {
-    // commandline arguments are ['path', 'mode', 'host_mac_address','remote_mac_address', [<remote_mac_address_1>, ...]]
-    enum
-    {
-        ARG_PATH = 0,
-        ARG_MODE = 1,
-        ARG_HOST_MAC = 2,
-        ARG_REMOTE_MAC = 3,
-        ARG_REMOTE_MAC_VEC = 4,
-    };
+    // commandline arguments are ['path', 'mode', [number_of_packages_to_send], 'host_mac_address','remote_mac_address', [<remote_mac_address_1>, ...]]
 
-    if (argc < 4)
+    int ARG_NUM_PACKAGES = -1;
+    int ARG_PATH = 0;
+    int ARG_MODE = 1;
+    int ARG_HOST_MAC = 2;
+    int ARG_REMOTE_MAC = 3;
+    int ARG_REMOTE_MAC_VEC = 4;
+    bool customSendMode = false;
+
+    if (!strcmp(argv[ARG_MODE], "send") && isInteger(argv[2]))
+        customSendMode = true;
+    // if in send mode and second argument is a number, then send packets
+    if (customSendMode)
     {
-        std::cerr << "Usage: " << argv[ARG_PATH] << " [send|capture|combined] <host_mac_address> <remote_mac_address>, [<remote_mac_address_1>, ...]" << std::endl;
+        ARG_NUM_PACKAGES = 2;
+        ARG_HOST_MAC = 3;
+        ARG_REMOTE_MAC = 4;
+        ARG_REMOTE_MAC_VEC = 5;
+    }
+
+    if (argv[ARG_MODE] == "capture" && argc < 4)
+    {
+        std::cerr << "Usage: " << argv[ARG_PATH] << " [send|capture|combined] [number_of_packages_to_send] <host_mac_address> <remote_mac_address>, [<remote_mac_address_1>, ...]" << std::endl;
+        return 1;
+    }
+    else if (argv[ARG_MODE] == "send" && argc < 5)
+    {
+        std::cerr << "Usage: " << argv[ARG_PATH] << " [send|capture|combined] [number_of_packages_to_send] <host_mac_address> <remote_mac_address>, [<remote_mac_address_1>, ...]" << std::endl;
         return 1;
     }
     // Check if mode is correct
@@ -168,7 +211,7 @@ int main(int argc, char *argv[])
     }
 
     // if more than 1 remote MAC address is provided do validation for each
-    if (argc > 4)
+    if (argc > ARG_REMOTE_MAC_VEC)
     {
         for (size_t i = 0; i < argc - ARG_REMOTE_MAC_VEC; i++)
         {
@@ -224,7 +267,7 @@ int main(int argc, char *argv[])
     if (strcmp(argv[ARG_MODE], "send") == 0)
     {
         // temporary: notify user that send only sends to first remote MAC address
-        if (argc > 4)
+        if (argc > ARG_REMOTE_MAC_VEC)
         {
             std::cout << "Note: Send mode currently only supports sending to the first remote MAC address." << std::endl;
         }
@@ -271,11 +314,18 @@ int main(int argc, char *argv[])
         for (int i = 0; i < 10000; i++)
             packetVec.push_back(*(newPacket.getRawPacket()));
 
-        // Sending batch of packets
+        // Sending batches of packets
         // ~~~~~~~~~~~~~~~~~~~~~~~~
-
-        std::cout << "Sending " << packetVec.size() << " packets..." << std::endl;
-        sender();
+        if (customSendMode)
+        {
+            std::cout << "Sending " << argv[ARG_NUM_PACKAGES] << " packages of " << packetVec.size() << " packets..." << std::endl;
+            sender(std::stoi(argv[ARG_NUM_PACKAGES]));
+        }
+        else
+        {
+            std::cout << "Sending " << packetVec.size() << " packets..." << std::endl;
+            sender();
+        }
     }
     else if // capture mode
         (strcmp(argv[ARG_MODE], "capture") == 0)
@@ -285,7 +335,6 @@ int main(int argc, char *argv[])
         if (argc > 4)
         {
             filter = "ether proto 0x1234";
-            filter += " and ether dst " + interface_macAddress.toString();
             filter += " and (";
             for (size_t i = 0; i < argc - ARG_REMOTE_MAC; i++)
             {
@@ -295,13 +344,16 @@ int main(int argc, char *argv[])
                     filter += " or ";
                 }
             }
+            filter += " or ether dst ff:ff:ff:ff:ff:ff";
             filter += ")";
         }
         else
         {
             filter = "ether proto 0x1234";
-            filter += " and ether dst " + interface_macAddress.toString();
-            filter += " and ether src " + remote_macAddress.toString();
+            filter += " and (";
+            filter += "ether src " + remote_macAddress.toString();
+            filter += " or ether dst ff:ff:ff:ff:ff:ff";
+            filter += ")";
         }
 
         std::cout << "Filter has been set: " << filter << std::endl;
