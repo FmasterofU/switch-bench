@@ -107,20 +107,36 @@ std::string getProtocolTypeAsString(pcpp::ProtocolType protocolType)
     }
 }
 
+/**
+ * A callback function for the async capture which is called each time a packet is captured
+ */
+static void onPacketArrives(pcpp::RawPacket *packet, pcpp::PcapLiveDevice *dev, void *cookie)
+{
+    // extract the stats object form the cookie
+    PacketStats *stats = (PacketStats *)cookie;
+
+    // parsed the raw packet
+    pcpp::Packet parsedPacket(packet);
+
+    // collect stats from packet
+    stats->consumePacket(parsedPacket);
+}
+
 int main(int argc, char *argv[])
 {
-    // commandline arguments are ['path', 'mode', 'host_mac_address','remote_mac_address']
+    // commandline arguments are ['path', 'mode', 'host_mac_address','remote_mac_address', [<remote_mac_address_1>, ...]]
     enum
     {
         ARG_PATH = 0,
         ARG_MODE = 1,
         ARG_HOST_MAC = 2,
         ARG_REMOTE_MAC = 3,
+        ARG_REMOTE_MAC_VEC = 4,
     };
 
-    if (argc != 4)
+    if (argc < 4)
     {
-        std::cerr << "Usage: " << argv[ARG_PATH] << " [send|capture|combined] <host_mac_address> <remote_mac_address>" << std::endl;
+        std::cerr << "Usage: " << argv[ARG_PATH] << " [send|capture|combined] <host_mac_address> <remote_mac_address>, [<remote_mac_address_1>, ...]" << std::endl;
         return 1;
     }
     // Check if mode is correct
@@ -149,6 +165,22 @@ int main(int argc, char *argv[])
     {
         std::cerr << "Invalid remote MAC address. MAC address must be in the format 'XX:XX:XX:XX:XX:XX'." << std::endl;
         return 1;
+    }
+
+    // if more than 1 remote MAC address is provided do validation for each
+    if (argc > 4)
+    {
+        for (size_t i = 0; i < argc - ARG_REMOTE_MAC_VEC; i++)
+        {
+            // Convert the MAC address string to a MacAddress object
+            pcpp::MacAddress macAddress(argv[ARG_REMOTE_MAC_VEC + i]);
+            // Validate remote MAC address format
+            if (!macAddress.isValid())
+            {
+                std::cerr << "Invalid remote MAC address at index [" << i + 1 << "]. MAC address must be in the format 'XX:XX:XX:XX:XX:XX'." << std::endl;
+                return 1;
+            }
+        }
     }
 
     std::srand(std::time(0)); // use current time as seed for random generator
@@ -191,6 +223,11 @@ int main(int argc, char *argv[])
     // if send mode, create a packet and send it
     if (strcmp(argv[ARG_MODE], "send") == 0)
     {
+        // temporary: notify user that send only sends to first remote MAC address
+        if (argc > 4)
+        {
+            std::cout << "Note: Send mode currently only supports sending to the first remote MAC address." << std::endl;
+        }
         // create a new Ethernet layer
         pcpp::EthLayer newEthernetLayer(interface_macAddress, remote_macAddress, 0x1234);
 
@@ -243,55 +280,53 @@ int main(int argc, char *argv[])
     else if // capture mode
         (strcmp(argv[ARG_MODE], "capture") == 0)
     {
+        // create filter for device using BPF standard
+        std::string filter = "";
+        if (argc > 4)
+        {
+            filter = "ether proto 0x1234";
+            filter += " and ether dst " + interface_macAddress.toString();
+            filter += " and (";
+            for (size_t i = 0; i < argc - ARG_REMOTE_MAC; i++)
+            {
+                filter += "ether src " + pcpp::MacAddress(argv[ARG_REMOTE_MAC + i]).toString();
+                if (i < argc - ARG_REMOTE_MAC - 1)
+                {
+                    filter += " or ";
+                }
+            }
+            filter += ")";
+        }
+        else
+        {
+            filter = "ether proto 0x1234";
+            filter += " and ether dst " + interface_macAddress.toString();
+            filter += " and ether src " + remote_macAddress.toString();
+        }
+
+        std::cout << "Filter has been set: " << filter << std::endl;
+
+        // Set the filter
+        if (!dev->setFilter(filter))
+        {
+            std::cerr << "Failed to set filter\n";
+            return 1;
+        }
+
         // create the stats object
         PacketStats stats;
 
         std::cout << std::endl
                   << "Starting async capture..." << std::endl;
 
-        // create an empty packet vector object
-        pcpp::RawPacketVector capturePacketVec;
-
         // start capture in async mode. Give a callback function to call to whenever a packet is captured and the stats object as the cookie
-        dev->startCapture(capturePacketVec);
+        dev->startCapture(onPacketArrives, &stats);
 
         // sleep for 10 seconds in main thread, in the meantime packets are captured in the async thread
         pcpp::multiPlatformSleep(10);
 
         // stop capturing packets
         dev->stopCapture();
-
-        // go over the packet vector and feed all packets to the stats object
-        for (pcpp::RawPacketVector::ConstVectorIterator iter = capturePacketVec.begin(); iter != capturePacketVec.end(); iter++)
-        {
-            // parse raw packet
-            pcpp::Packet parsedPacket(*iter);
-
-            // get ethernet layer for filtering
-            pcpp::EthLayer *ethernetLayer = parsedPacket.getLayerOfType<pcpp::EthLayer>();
-            if (ethernetLayer == NULL)
-            {
-                std::cerr << "Something went wrong, couldn't find Ethernet layer" << std::endl;
-                // return;
-                continue;
-            }
-            // std::cout
-            //     << "Layer type: " << "Ethernet" << "; "                                    // get layer type
-            //     << "Total data: " << ethernetLayer->getDataLen() << " [bytes]; "           // get total length of the layer
-            //     << "Layer data: " << ethernetLayer->getHeaderLen() << " [bytes]; "         // get the header length of the layer
-            //     << "Layer payload: " << ethernetLayer->getLayerPayloadSize() << " [bytes]" // get the payload length of the layer (equals total length minus header length)
-            //     << std::endl;
-
-            // print the source and dest MAC addresses and the Ether type
-            // std::cout << std::endl
-            //           << "Source MAC address: " << ethernetLayer->getSourceMac() << std::endl
-            //           << "Destination MAC address: " << ethernetLayer->getDestMac() << std::endl
-            //           << "Ether type = 0x" << std::hex << pcpp::netToHost16(ethernetLayer->getEthHeader()->etherType) << std::endl;
-
-            // collect stats from packet if it matches filter (source MAC address, destination mac address, ether type)
-            if (ethernetLayer->getSourceMac() == remoteMacAddr && ethernetLayer->getDestMac() == interfaceMacAddr && pcpp::netToHost16(ethernetLayer->getEthHeader()->etherType) == 0x1234)
-                stats.consumePacket(parsedPacket);
-        }
 
         // print results
         std::cout << "Results:" << std::endl;
