@@ -54,13 +54,6 @@ void sender()
 struct PacketStats
 {
     int ethPacketCount;
-    int ipv4PacketCount;
-    int ipv6PacketCount;
-    int tcpPacketCount;
-    int udpPacketCount;
-    int dnsPacketCount;
-    int httpPacketCount;
-    int sslPacketCount;
 
     /**
      * Clear all stats
