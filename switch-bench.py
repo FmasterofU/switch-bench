@@ -2,8 +2,11 @@ from scapy.all import Ether, sendp, sniff, raw, conf, sendpfast
 import zlib
 import sys, os, random, time
 from multiprocessing import Process, active_children
+import signal
 
 conf.verb = 0
+
+counter = 0
 
 ENABLE_FCS = False
 
@@ -75,16 +78,20 @@ def send_default_layer2_packet(dst_mac, src_mac):
 def analyze_packet(packet):
     if ENABLE_FCS and not check_fcs(bytes(packet[Ether].payload)):
         raise Exception("FCS check failed.")
+    global counter
+    counter += 1
 
 def capture_packets(remote_hosts = None):
+    filter = ""
     if not remote_hosts:
-        sniff(filter="ether proto " + hex(ETHERNET_ENCAPSULATED_PROTOCOL), prn=analyze_packet)
+        filter="ether proto " + hex(ETHERNET_ENCAPSULATED_PROTOCOL)
     else:
         filter = "ether proto " + hex(ETHERNET_ENCAPSULATED_PROTOCOL) + " and (ether src " + remote_hosts[0]
         for i in range(1, len(remote_hosts)):
             filter += " or ether src " + remote_hosts[i]
         filter += " or ether dst ff:ff:ff:ff:ff:ff)"
-        sniff(filter=filter, prn=analyze_packet)
+    while True:
+        sniff(filter=filter, prn=analyze_packet, timeout=10)
 
 def validate_mac_address(mac_address):
     if len(mac_address) != 17:
@@ -105,6 +112,13 @@ def send_process(localhost_mac):
     while True:
         for i in range(3, len(sys.argv)):
             send_default_layer2_packet(sys.argv[i], localhost_mac)
+
+def printer(sig, frame):
+    global counter
+    print("Number of packets received: ", counter)
+    exit(0)
+
+signal.signal(signal.SIGINT, printer)
 
 if __name__ == "__main__":
     print("Number of arguments: ", len(sys.argv))
