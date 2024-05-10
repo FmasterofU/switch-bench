@@ -151,8 +151,6 @@ bool isInteger(const std::string &s)
 
 int main(int argc, char *argv[])
 {
-    // commandline arguments are ['path', 'mode', [number_of_packages_to_send], 'host_mac_address','remote_mac_address', [<remote_mac_address_1>, ...]]
-
     int ARG_NUM_PACKAGES = -1;
     int ARG_PATH = 0;
     int ARG_MODE = 1;
@@ -160,6 +158,13 @@ int main(int argc, char *argv[])
     int ARG_REMOTE_MAC = 3;
     int ARG_REMOTE_MAC_VEC = 4;
     bool customSendMode = false;
+
+    // commandline arguments are ['path', 'mode', [number_of_packages_to_send], 'host_mac_address','remote_mac_address', [<remote_mac_address_1>, ...]]
+    if (argc < 4)
+    {
+        std::cerr << "Usage: " << argv[ARG_PATH] << " [send|capture|combined] [number_of_packages_to_send] <host_mac_address> <remote_mac_address>, [<remote_mac_address_1>, ...]" << std::endl;
+        return 1;
+    }
 
     if (!strcmp(argv[ARG_MODE], "send") && isInteger(argv[2]))
         customSendMode = true;
@@ -172,12 +177,7 @@ int main(int argc, char *argv[])
         ARG_REMOTE_MAC_VEC = 5;
     }
 
-    if (argv[ARG_MODE] == "capture" && argc < 4)
-    {
-        std::cerr << "Usage: " << argv[ARG_PATH] << " [send|capture|combined] [number_of_packages_to_send] <host_mac_address> <remote_mac_address>, [<remote_mac_address_1>, ...]" << std::endl;
-        return 1;
-    }
-    else if (argv[ARG_MODE] == "send" && argc < 5)
+    if (!strcmp(argv[ARG_MODE], "send") && argc < 5)
     {
         std::cerr << "Usage: " << argv[ARG_PATH] << " [send|capture|combined] [number_of_packages_to_send] <host_mac_address> <remote_mac_address>, [<remote_mac_address_1>, ...]" << std::endl;
         return 1;
