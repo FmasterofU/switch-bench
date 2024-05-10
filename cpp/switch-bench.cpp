@@ -167,7 +167,7 @@ int main(int argc, char *argv[])
 
     // pcpp::RawPacketVector packetVec;
 
-    for (int i = 0; i < 1; i++)
+    for (int i = 0; i < 10000; i++)
         packetVec.push_back(*(newPacket.getRawPacket()));
 
     // Sending batch of packets
